@@ -13,7 +13,7 @@
 #define PROGRAM_MAX_NUMBER 10
 #define UUID_MAX_NUMBER 20
 
-#define MAX_PACKETS_SEND 20
+#define MAX_PACKETS_SEND 1
 
 using namespace std;
 
@@ -117,7 +117,7 @@ short int tcp_reciever(packet p) {
 
     //Determines Buffer is Empty or not
     if(tcp_netin[storeIndex].STATE!=-5) {
-        while (storeIndex++<NETIN_BUFFER_MAX_SIZE) {
+        while (storeIndex++ >= NETIN_BUFFER_MAX_SIZE) {
             if (tcp_netin[storeIndex].STATE==-5) break;
         }
         if (storeIndex==NETIN_BUFFER_MAX_SIZE) {
@@ -163,7 +163,7 @@ short int tcp_reciever(packet p) {
     if (tcp_netin[getNetinIndex(storeIndex-1)].UUID!=tcp_netin[storeIndex].UUID) {
         TcpinStartMem[tcp_netin[storeIndex].programID]=storeIndex;
         TcpinEndMem[tcp_netin[storeIndex].programID]=storeIndex;
-        tcp_netin[getNetinIndex(storeIndex-1)].NEXTMEM=storeIndex;
+        tcp_netin[getNetinIndex(TcpinEndMem[tcp_netin[storeIndex].programID])].NEXTMEM=storeIndex;
     }
 
     else {
