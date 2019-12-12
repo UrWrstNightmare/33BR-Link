@@ -1,9 +1,12 @@
 #include <bits/stdc++.h>
 
+//DESIGNATED WORDS
+
 #define DEFAULT 0
 #define PRIORITY 1
 #define SUPER_PRIORITY 2
 
+//MEMORY SETTINGS (SIZE)
 #define BUFFER_MAX_SIZE 100
 #define PRIORITY_BUFFER_MAX_SIZE 20
 #define NETIN_BUFFER_MAX_SIZE 140
@@ -13,8 +16,14 @@
 #define PROGRAM_MAX_NUMBER 10
 #define UUID_MAX_NUMBER 20
 
-#define MAX_PACKETS_SEND 1
+#define MAX_PACKETS_SEND 20
+//----------------------
 
+//BEHAVIOR SETTINGS
+bool deleteMessageIfMalformed = false;
+
+
+//---------------------
 using namespace std;
 
 struct sysdata{
@@ -57,11 +66,35 @@ struct packet ble_netout[PRIORITY_BUFFER_MAX_SIZE]; //super_priority
 struct sysdata data;
 
 struct packet tcp_netin[NETIN_BUFFER_MAX_SIZE];
-int storeIndex=0;
+struct packet ble_netin[NETIN_BUFFER_MAX_SIZE];
+
 int TcpinStartMem[PROGRAM_MAX_NUMBER];
+int BleinStartMem[PROGRAM_MAX_NUMBER];
+
 int TcpinEndMem[PROGRAM_MAX_NUMBER];
+int BleinEndMem[PROGRAM_MAX_NUMBER];
+
+short int recievingUUID[UUID_MAX_NUMBER];
+
 //[x][y][0] means length of the array[x][y]
 
+int storeIndex=0;
+
+//<Variable-INIT-------------------------------------------------->/
+void run_only_once(){
+    for(short int i = 0; i < PROGRAM_MAX_NUMBER; i++){
+        TcpinEndMem[i] = -1; //-1 means NOT DEFINED in READ buffers...
+        BleinEndMem[i] = -1;
+        TcpinStartMem[i] = -1;
+        BleinStartMem[i] = -1;
+    }
+    for(short int i = 0; i < UUID_MAX_NUMBER; i++){
+        recievingUUID[i] = -1;
+    }
+}
+//</Variable-INIT-------------------------------------------------->
+
+//<DEBUG---------------------------------------------------------->/
 void print_tcp_netin(){
     cout << "[DEBUG] TCP_NETIN buffer state:\n --> UUID: ";
     for(int i = 0 ; i< NETIN_BUFFER_MAX_SIZE; i++){
@@ -80,7 +113,7 @@ void print_tcp_netin(){
 
 void print_startmem(){
     cout << "[DEBUG] STARTMEM buffer state:\n";
-    for(int i = 0 ; i < NETIN_BUFFER_MAX_SIZE; i++){
+    for(int i = 0 ; i < PROGRAM_MAX_NUMBER; i++){
         cout << TcpinStartMem[i] << " ";
     }
     cout << "\n----------------------";
@@ -88,11 +121,13 @@ void print_startmem(){
 
 void print_endmem(){
     cout << "[DEBUG] ENDMEM buffer state:\n";
-    for(int i = 0; i < NETIN_BUFFER_MAX_SIZE; i++){
+    for(int i = 0; i < PROGRAM_MAX_NUMBER; i++){
         cout << TcpinEndMem[i] << " ";
     }
     cout << "\n----------------------";
 }
+//</Debug---------------------------------------------------------/>/
+
 
 int getNetinIndex(int index) {
     if (index<0) {
@@ -107,6 +142,150 @@ int getNetinIndex(int index) {
 
 void circularIndex(int d) {
     storeIndex=getNetinIndex(storeIndex+d);
+}
+
+//For Reading from
+string read(short int progID){
+
+    if(progID < 0 || progID > PROGRAM_MAX_NUMBER){
+        cout << "" << endl;
+        return "[ER][READ](ERRCODE -1) Invalid PROGID passed! ";
+    }
+
+    //BLE buffer READ
+    if(BleinStartMem[progID] != -1){
+        cout << "[READ] Retrieving the most recent message in the BLE buffer..." <<endl;
+        short int traverse_memLoc = BleinStartMem[progID];
+        short int UUID = ble_netin[traverse_memLoc].UUID;
+        string outSTR = ble_netin[traverse_memLoc].message;
+
+        while(ble_netin[traverse_memLoc].STATE != -4 && ble_netin[traverse_memLoc].NEXTMEM != -1 && ble_netin[traverse_memLoc].UUID == UUID){
+            traverse_memLoc = ble_netin[traverse_memLoc].NEXTMEM; //move on to the next linked memory
+            outSTR += ble_netin[traverse_memLoc].message; //append packet to next memory
+        }
+
+        short int finalLoc = traverse_memLoc;
+        if(ble_netin[traverse_memLoc].STATE != -4){ //if packet END not properly defined (malformed message)
+            //should return a MALFORMED PACKET error...
+            if(deleteMessageIfMalformed){ //will agressively free malformed messages
+                int i;
+                cout << "[READ] Forcing Reader to DROP all NON-BEGINNING packets with UUID = " << UUID << endl;
+                for(i = 0; i < UUID_MAX_NUMBER; i++){
+                    if(recievingUUID[i] == UUID)
+                        recievingUUID[i] = -1; //This will make the reciever drop any further incoming packets with the same UUID
+                }
+                if(i == UUID_MAX_NUMBER){
+                    return "[ER][READ](ERRCODE -6974) Why wasn't the memory freed already? UNKNOWN ERROR"; //such event should never occur
+                }
+                //now, we should traverse the linked list and DELETE all of the nodes
+                cout << "[READ] Deleting all packets in buffer with UUID = " << UUID << endl;
+                short int cnt = 1;
+                traverse_memLoc = BleinStartMem[progID];
+                BleinStartMem[progID] = ble_netin[traverse_memLoc].NEXTMEM; //So that the next time the READ happens, it will point to the next address
+                ble_netin[traverse_memLoc].STATE = -5; //EMPTY
+                while(traverse_memLoc != finalLoc){
+                    traverse_memLoc = ble_netin[traverse_memLoc].NEXTMEM;
+                    BleinStartMem[progID] = ble_netin[traverse_memLoc].NEXTMEM;
+                    ble_netin[traverse_memLoc].STATE = -5;
+                    cnt++;
+                    if(cnt > NETIN_BUFFER_MAX_SIZE){
+                        return "[ER][READ](ERRCODE -2000) Something went wrong with DELETE... INFINITE LOOP";
+                    }
+                }
+                cout << "[READ] Freed " << cnt << "memory from TCP_NETIN!" << endl;
+            }
+            return "[ER][READ](ERRCODE -2) The MSG stream isn't terminated... UNFINALIZED_STREAM";
+        }
+
+        //Sucessful READ operation, message retrieval okay, so we should delete all packets with the same UUID, change STARTMEM, send ACK, and return string to user!
+        //Delete Packets and change STARTMEM
+        cout << "[READ] Deleting all packets in buffer with UUID = " << UUID << endl;
+        short int cnt = 1;
+        traverse_memLoc = BleinStartMem[progID];
+        BleinStartMem[progID] = ble_netin[traverse_memLoc].NEXTMEM; //So that the next time the READ happens, it will point to the next address
+        tcp_netin[traverse_memLoc].STATE = -5; //EMPTY
+        while(traverse_memLoc != finalLoc){
+            traverse_memLoc = ble_netin[traverse_memLoc].NEXTMEM;
+            BleinStartMem[progID] = ble_netin[traverse_memLoc].NEXTMEM;
+            ble_netin[traverse_memLoc].STATE = -5;
+            cnt++;
+            if(cnt > NETIN_BUFFER_MAX_SIZE){
+                return "[ER][READ](ERRCODE -2000) Something went wrong with DELETE... INFINITE LOOP";
+            }
+        }
+        cout << "[READ] Freed " << cnt << "memory from TCP_NETIN!" << endl;
+        //TODO send ACK
+        return outSTR;
+    }
+    //BLE buffer READ
+    if(TcpinStartMem[progID] != -1){
+        cout << "[READ] Retrieving the most recent message in the TCP buffer..." <<endl;
+        short int traverse_memLoc = TcpinStartMem[progID];
+        short int UUID = tcp_netin[traverse_memLoc].UUID;
+        string outSTR = tcp_netin[traverse_memLoc].message;
+
+        while(tcp_netin[traverse_memLoc].STATE != -4 && tcp_netin[traverse_memLoc].NEXTMEM != -1 && tcp_netin[traverse_memLoc].UUID == UUID){
+            cout << "[READ] searching @ " << traverse_memLoc << endl;
+            traverse_memLoc = tcp_netin[traverse_memLoc].NEXTMEM; //move on to the next linked memory
+            outSTR += tcp_netin[traverse_memLoc].message; //append packet to next memory
+        }
+
+        short int finalLoc = traverse_memLoc;
+        if(tcp_netin[traverse_memLoc].STATE != -4){ //if packet END not properly defined (malformed message)
+            //should return a MALFORMED PACKET error...
+            if(deleteMessageIfMalformed){ //will agressively free malformed messages
+                int i;
+                cout << "[READ] Forcing Reader to DROP all NON-BEGINNING packets with UUID = " << UUID << endl;
+                for(i = 0; i < UUID_MAX_NUMBER; i++){
+                    if(recievingUUID[i] == UUID)
+                        recievingUUID[i] = -1; //This will make the reciever drop any further incoming packets with the same UUID
+                }
+                if(i == UUID_MAX_NUMBER){
+                    return "[ER][READ](ERRCODE -6974) Why wasn't the memory freed already? UNKNOWN ERROR"; //such event should never occur
+                }
+                //now, we should traverse the linked list and DELETE all of the nodes
+                cout << "[READ] Deleting all packets in buffer with UUID = " << UUID << endl;
+                short int cnt = 1;
+                traverse_memLoc = TcpinStartMem[progID];
+                TcpinStartMem[progID] = tcp_netin[traverse_memLoc].NEXTMEM; //So that the next time the READ happens, it will point to the next address
+                tcp_netin[traverse_memLoc].STATE = -5; //EMPTY
+                while(traverse_memLoc != finalLoc){
+                    traverse_memLoc = tcp_netin[traverse_memLoc].NEXTMEM;
+                    TcpinStartMem[progID] = tcp_netin[traverse_memLoc].NEXTMEM;
+                    tcp_netin[traverse_memLoc].STATE = -5;
+                    cnt++;
+                    if(cnt > NETIN_BUFFER_MAX_SIZE){
+                        return "[ER][READ](ERRCODE -2000) Something went wrong with DELETE... INFINITE LOOP";
+                    }
+                }
+                cout << "[READ] Freed " << cnt << "memory from TCP_NETIN!" << endl;
+            }
+            return "[ER][READ](ERRCODE -2) The MSG stream isn't terminated... UNFINALIZED_STREAM";
+        }
+
+        //Sucessful READ operation, message retrieval okay, so we should delete all packets with the same UUID, change STARTMEM, send ACK, and return string to user!
+        //Delete Packets and change STARTMEM
+        cout << "[READ] Deleting all packets in buffer with UUID = " << UUID << endl;
+        short int cnt = 1;
+        traverse_memLoc = TcpinStartMem[progID];
+        TcpinStartMem[progID] = tcp_netin[traverse_memLoc].NEXTMEM; //So that the next time the READ happens, it will point to the next address
+        tcp_netin[traverse_memLoc].STATE = -5; //EMPTY
+        while(traverse_memLoc != finalLoc){
+            traverse_memLoc = tcp_netin[traverse_memLoc].NEXTMEM;
+            TcpinStartMem[progID] = tcp_netin[traverse_memLoc].NEXTMEM;
+            tcp_netin[traverse_memLoc].STATE = -5;
+            cnt++;
+            if(cnt > NETIN_BUFFER_MAX_SIZE){
+                return "[ER][READ](ERRCODE -2000) Something went wrong with DELETE... INFINITE LOOP";
+            }
+        }
+        cout << "[READ] Freed " << cnt << "memory from TCP_NETIN!" << endl;
+        //TODO send ACK
+        return outSTR;
+    }
+
+    //no message available!
+    return "[ER][READ](ERRORCODE -0) No msg in program buffer!";
 }
 
 
@@ -483,7 +662,7 @@ short int proc(){
             break;
         ble_reciever(ble_netout[pos]);
         ble_netout[pos].UUID = 0; //debug
-         ble_netout[pos].STATE = -5; //EMPTY
+        ble_netout[pos].STATE = -5; //EMPTY
     }
     short int i;
     for(i = 0; i < MAX_PACKETS_SEND; i++){
@@ -505,6 +684,7 @@ short int proc(){
 }
 
 int main(void){
+    run_only_once();
     bool terminate = false;
     while(!terminate){
         cout << "Processing Packets..."<<endl;
@@ -570,6 +750,12 @@ int main(void){
             }
             else if(tmp == "endmem"){
                 print_endmem();
+            }
+            else if(tmp == "read"){
+                int progNo;
+                cout << "[SendBLE] Enter progID" << endl;
+                scanf("%d", &progNo);
+                cout << read(progNo) << endl;
             }
             else{
                 cout << "Unknown Command..." << endl;
