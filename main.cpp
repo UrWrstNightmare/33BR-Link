@@ -1,5 +1,7 @@
 #include <bits/stdc++.h>
+
 //DESIGNATED WORDS
+
 #define DEFAULT 0
 #define PRIORITY 1
 #define SUPER_PRIORITY 2
@@ -337,14 +339,15 @@ short int tcp_reciever(packet p) {
     printf("\n");
 
     //Buffer Address Record
-    if (tcp_netin[getNetinIndex(storeIndex-1)].UUID!=tcp_netin[storeIndex].UUID) {
+    if (tcp_netin[getNetinIndex(storeIndex-1)].programID!=tcp_netin[storeIndex].programID) {
         TcpinStartMem[tcp_netin[storeIndex].programID]=storeIndex;
-        TcpinEndMem[tcp_netin[storeIndex].programID]=storeIndex;
-        tcp_netin[getNetinIndex(TcpinEndMem[tcp_netin[storeIndex].programID])].NEXTMEM=storeIndex;
+        TcpinEndMem[tcp_netin[getNetinIndex(storeIndex-1)].programID]=getNetinIndex(storeIndex-1);
+        tcp_netin[TcpinEndMem[tcp_netin[storeIndex].programID]].NEXTMEM=storeIndex;
     }
 
     else {
         TcpinEndMem[tcp_netin[storeIndex].programID]=storeIndex;
+        tcp_netin[getNetinIndex(storeIndex-1)].NEXTMEM=storeIndex;
     }
 
     //Makes Buffer Circular Structure
