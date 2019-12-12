@@ -57,7 +57,7 @@ struct packet ble_netout[PRIORITY_BUFFER_MAX_SIZE]; //super_priority
 struct sysdata data;
 
 struct packet tcp_netin[NETIN_BUFFER_MAX_SIZE];
-int storeIndex=-1;
+int storeIndex=0;
 int TcpinStartMem[PROGRAM_MAX_NUMBER];
 int TcpinEndMem[PROGRAM_MAX_NUMBER];
 //[x][y][0] means length of the array[x][y]
@@ -114,8 +114,6 @@ short int tcp_reciever(packet p) {
     cout << "[TCP] Sending packet UUID: " << p.UUID << " ProgNo: " << p.programID << " STATE: " << p.STATE
          << "message: " << p.message << endl;
 
-    //Makes Buffer Circular Structure
-    storeIndex=getNetinIndex(storeIndex++);
 
     //Determines Buffer is Empty or not
     if(tcp_netin[storeIndex].STATE!=-5) {
@@ -171,6 +169,10 @@ short int tcp_reciever(packet p) {
     else {
         TcpinEndMem[tcp_netin[storeIndex].programID]=storeIndex;
     }
+
+    //Makes Buffer Circular Structure
+    storeIndex=getNetinIndex(storeIndex++);
+
 
     return 0;
 
