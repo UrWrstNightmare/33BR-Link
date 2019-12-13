@@ -9,7 +9,7 @@
 //MEMORY SETTINGS (SIZE)
 #define BUFFER_MAX_SIZE 100
 #define PRIORITY_BUFFER_MAX_SIZE 20
-#define NETIN_BUFFER_MAX_SIZE 140
+#define NETIN_BUFFER_MAX_SIZE 20
 
 #define PACKET_STR_SIZE 10
 
@@ -68,17 +68,17 @@ struct sysdata data;
 struct packet tcp_netin[NETIN_BUFFER_MAX_SIZE];
 struct packet ble_netin[NETIN_BUFFER_MAX_SIZE];
 
-int TcpinStartMem[PROGRAM_MAX_NUMBER];
-int BleinStartMem[PROGRAM_MAX_NUMBER];
+short int TcpinStartMem[PROGRAM_MAX_NUMBER]; //
+short int BleinStartMem[PROGRAM_MAX_NUMBER]; //
 
-int TcpinEndMem[PROGRAM_MAX_NUMBER];
-int BleinEndMem[PROGRAM_MAX_NUMBER];
+short int TcpinEndMem[PROGRAM_MAX_NUMBER]; //
+short int BleinEndMem[PROGRAM_MAX_NUMBER]; //
 
 short int recievingUUID[UUID_MAX_NUMBER];
 
 //[x][y][0] means length of the array[x][y]
 
-int storeIndex=0;
+short int storeIndex=0;
 
 //<Variable-INIT-------------------------------------------------->/
 void run_only_once(){
@@ -97,15 +97,15 @@ void run_only_once(){
 //<DEBUG---------------------------------------------------------->/
 void print_tcp_netin(){
     cout << "[DEBUG] TCP_NETIN buffer state:\n --> UUID: ";
-    for(int i = 0 ; i< NETIN_BUFFER_MAX_SIZE; i++){
+    for(short int i = 0 ; i< NETIN_BUFFER_MAX_SIZE; i++){
         cout << tcp_netin[i].UUID << " ";
     }
     cout << "\n --> STATE: ";
-    for(int i = 0 ; i< NETIN_BUFFER_MAX_SIZE; i++){
+    for(short int i = 0 ; i< NETIN_BUFFER_MAX_SIZE; i++){
         cout << tcp_netin[i].STATE << " ";
     }
     cout << "\n --> NEXTMEM: ";
-    for(int i = 0 ; i< NETIN_BUFFER_MAX_SIZE; i++){
+    for(short int i = 0 ; i< NETIN_BUFFER_MAX_SIZE; i++){
         cout << tcp_netin[i].NEXTMEM << " ";
     }
     cout << "\n----------------------";
@@ -113,7 +113,7 @@ void print_tcp_netin(){
 
 void print_startmem(){
     cout << "[DEBUG] STARTMEM buffer state:\n";
-    for(int i = 0 ; i < PROGRAM_MAX_NUMBER; i++){
+    for(short int i = 0 ; i < PROGRAM_MAX_NUMBER; i++){
         cout << TcpinStartMem[i] << " ";
     }
     cout << "\n----------------------";
@@ -121,7 +121,7 @@ void print_startmem(){
 
 void print_endmem(){
     cout << "[DEBUG] ENDMEM buffer state:\n";
-    for(int i = 0; i < PROGRAM_MAX_NUMBER; i++){
+    for(short int i = 0; i < PROGRAM_MAX_NUMBER; i++){
         cout << TcpinEndMem[i] << " ";
     }
     cout << "\n----------------------";
@@ -288,6 +288,53 @@ string read(short int progID){
     return "[ER][READ](ERRORCODE -0) No msg in program buffer!";
 }
 
+short int prevIndex;
+
+short int storeIndexSave(){
+    prevIndex = storeIndex;
+}
+
+short int storeIndexRevert(){
+    storeIndex = prevIndex;
+    return storeIndex;
+}
+
+short int storeIndexIncrement(){
+    if(storeIndex == NETIN_BUFFER_MAX_SIZE-1)
+        storeIndex = 0;
+    else
+        storeIndex++;
+    return storeIndex;
+}
+
+bool recievingUUIDAdd(short int UUID){
+    for(short int i = 0; i < UUID_MAX_NUMBER; i++){
+        if(recievingUUID[i] == -1){
+            recievingUUID[i] = UUID;
+            return true;
+            break;
+        }
+    }
+    return false;
+}
+
+bool recievingUUIDexist(short int UUID){
+    for(short int i = 0; i < UUID_MAX_NUMBER; i++){
+        if(recievingUUID[i] == UUID)
+            return true;
+    }
+    return false;
+}
+
+bool recievingUUIDdelete(short int UUID){
+    for(short int i = 0; i < UUID_MAX_NUMBER; i++){
+        if(recievingUUID[i] == UUID){
+            recievingUUID[i] = -1;
+            return true;
+        }
+    }
+    return false;
+}
 
 short int tcp_reciever(packet p) {
     cout << "[TCP] Sending packet UUID: " << p.UUID << " ProgNo: " << p.programID << " STATE: " << p.STATE
@@ -295,16 +342,20 @@ short int tcp_reciever(packet p) {
 
 
     //Determines Buffer is Empty or not
+    short int cnt = 0;
+    storeIndexSave(); //so that reverting changes is easy
     if(tcp_netin[storeIndex].STATE!=-5) {
-        while (storeIndex++ >= NETIN_BUFFER_MAX_SIZE) {
+        while (cnt < NETIN_BUFFER_MAX_SIZE) {
             if (tcp_netin[storeIndex].STATE==-5) break;
+            storeIndexIncrement();
+            cnt++;
         }
-        if (storeIndex==NETIN_BUFFER_MAX_SIZE) {
+        if (cnt==NETIN_BUFFER_MAX_SIZE) {
             printf("[TcpRecv] [!] BUFFER EXCEED! Cannot receive anymore (-1)\n");
+            storeIndexRevert(); //revert all changes made
             return -1; //-1: Buffer Exceed
         }
     }
-
         //Reacts by State
     else if (p.STATE==-1) {
         printf("[TcpRecv] [!] Received ERROR Data (-1) (U: %d, P: %d)\n", tcp_netin[storeIndex].UUID, tcp_netin[storeIndex].programID);
@@ -322,36 +373,165 @@ short int tcp_reciever(packet p) {
             //End
         }
          */
-
     else if (p.STATE==-5) {
         //Empty
-        circularIndex(-1);
+        storeIndexRevert(); //revert changes made
         printf("[TcpRecv] [!] Received EMPTY Data (-5) (U: %d, P: %d)\n", tcp_netin[storeIndex].UUID, tcp_netin[storeIndex].programID);
         return 0;
     }
 
-    tcp_netin[storeIndex]=p;
+    tcp_netin[storeIndex]=p; //recieve
+
+    //debug --------------------------------------
     printf("[TcpRecv] Received Data Successfully (U: %d, P: %d)\n", tcp_netin[storeIndex].UUID, tcp_netin[storeIndex].programID);
-    printf("> \"%s\"", tcp_netin[storeIndex].message.c_str());
+    printf("> \"%s\"\n", tcp_netin[storeIndex].message.c_str());
     for (int i=0; i<NETIN_BUFFER_MAX_SIZE; i++) {
         printf("%d ", tcp_netin[i].UUID);
     }
     printf("\n");
+    //------------------------------------------------
+
+    if(p.STATE == 0 || p.STATE == -4){ //add UUID to active...
+        if(!recievingUUIDexist(p.UUID)){
+            cout << "[TcpRecv] wow, a new msg!" << endl;
+            if(!recievingUUIDAdd(p.UUID)){
+                cout << "[TcpRecv] Error: TOO MANY ACTIVE UUIDS! (-2)" << endl;
+                //reverting changes after buffer save -------------------------------------
+                //will now free the memory of the recieved packet in buffer;
+                tcp_netin[getNetinIndex(storeIndex)].STATE = -5; //FLAG EMPTY
+                tcp_netin[getNetinIndex(storeIndex)].NEXTMEM = -1; //Probably unnecessary, but unlink anyways
+                storeIndexRevert(); //revert changes made
+                //-------------------------------------------------------------------------
+                return -2;
+            }
+        }
+    }
+    //if continued buffer (most common case)
+    if(tcp_netin[getNetinIndex(storeIndex-1)].UUID == p.UUID){
+        if(tcp_netin[getNetinIndex(storeIndex-1)].STATE == -4){ //if the message has ended...
+            cout << "[TcpRecv] UNKNOWN ERROR: The msg stream has alreadey ended...? (-5)" << endl;
+            //reverting changes after buffer save -------------------------------------
+            //will now free the memory of the recieved packet in buffer;
+            tcp_netin[getNetinIndex(storeIndex)].STATE = -5; //FLAG EMPTY
+            tcp_netin[getNetinIndex(storeIndex)].NEXTMEM = -1; //Probably unnecessary, but unlink anyways
+            storeIndexRevert(); //revert changes made
+            //-------------------------------------------------------------------------
+            return -5;
+        }
+        tcp_netin[getNetinIndex(storeIndex-1)].NEXTMEM = storeIndex;
+        //verify if the progID already exists
+        if(TcpinEndMem[p.programID] != -1){
+            //if continued...
+            TcpinEndMem[p.programID] = storeIndex;
+        }else{
+            TcpinStartMem[p.programID] = storeIndex;
+            TcpinEndMem[p.programID] = storeIndex;
+        }
+    }
+    //If new type of message add UUID to recievingUUID
+    else if(tcp_netin[getNetinIndex(storeIndex-1)].UUID != p.UUID && p.STATE == 0){
+        //now, we should add this NEW UUID to existing program linked list
+        if(TcpinStartMem[p.programID] != -1){ //if this is not empty (message available for progID)
+            tcp_netin[TcpinEndMem[p.programID]].NEXTMEM = storeIndex;
+            TcpinEndMem[p.programID] = storeIndex;
+            tcp_netin[storeIndex].NEXTMEM = -1; //unlink
+        }else{ //this is the first message for the progID!
+            TcpinStartMem[p.programID] = storeIndex;
+            TcpinEndMem[p.programID] = storeIndex;
+            tcp_netin[storeIndex].NEXTMEM = -1; //unlink
+        }
+    }
+    else if (!recievingUUIDexist(p.UUID)){
+        //reverting changes after buffer save -------------------------------------
+        //will now free the memory of the recieved packet in buffer;
+        tcp_netin[getNetinIndex(storeIndex)].STATE = -5; //FLAG EMPTY
+        tcp_netin[getNetinIndex(storeIndex)].NEXTMEM = -1; //Probably unnecessary, but unlink anyways
+        storeIndexRevert(); //revert changes made
+        //-------------------------------------------------------------------------
+
+        cout << "[TcpRecv] Error: IGNORED PACKET (UUID dropped, or is in out-of-order...) (-3)" << endl;
+        return -3;
+    }else{ //the UUID exists in previous buffer, should add to that LINKED LIST!
+
+        //Linked list traversal for that PROGID (since the UUID should exist in PROGID)----------
+        short int cnt = 0;
+        short int lastpos = TcpinStartMem[p.programID];
+        short int curpos = TcpinStartMem[p.programID];
+        while (cnt < NETIN_BUFFER_MAX_SIZE){
+            curpos = tcp_netin[lastpos].NEXTMEM;
+            /*if(curpos == -1){
+                cout << "[TcpRecv] Error: UNKOWN ERROR (UUID is active, but does not exist in buffer space? How?)(-4)" << endl;
+                //reverting changes after buffer save -------------------------------------
+                //will now free the memory of the recieved packet in buffer;
+                tcp_netin[getNetinIndex(storeIndex)].STATE = -5; //FLAG EMPTY
+                tcp_netin[getNetinIndex(storeIndex)].NEXTMEM = -1; //Probably unnecessary, but unlink anyways
+                storeIndexRevert(); //revert changes made
+                //-------------------------------------------------------------------------
+                return -4;
+            }*/
+            if(curpos == -1){
+                //this is a NEW message! wow
+                tcp_netin[TcpinEndMem[p.programID]].NEXTMEM = storeIndex;
+                TcpinEndMem[p.programID] = storeIndex;
+                cout << "[TcpRecv] LINK successful!" << endl;
+                break;
+            }
+            if(tcp_netin[curpos].UUID != p.UUID && tcp_netin[lastpos].UUID == p.UUID){ //found it!
+                //we should now link!
+                tcp_netin[storeIndex].NEXTMEM = tcp_netin[lastpos].NEXTMEM;
+                tcp_netin[lastpos].NEXTMEM = storeIndex;
+                cout << "[TcpRecv] INSERT successful!" <<endl;
+                break;
+            }
+            //if not found, continue
+            lastpos = curpos;
+            cnt++;
+        }
+        if(cnt == NETIN_BUFFER_MAX_SIZE){
+            cout << "[TcpRecv] Error: UNKOWN ERROR (UUID is active, but does not exist in buffer space? How?)(-4)" << endl;
+            //reverting changes after buffer save -------------------------------------
+            //will now free the memory of the recieved packet in buffer;
+            tcp_netin[getNetinIndex(storeIndex)].STATE = -5; //FLAG EMPTY
+            tcp_netin[getNetinIndex(storeIndex)].NEXTMEM = -1; //Probably unnecessary, but unlink anyways
+            storeIndexRevert(); //revert changes made
+            //-------------------------------------------------------------------------
+            return -4;
+        }
+
+    }
+    //Makes Buffer Circular Structure
+    storeIndex=getNetinIndex(storeIndex++);
+    if(p.STATE == -4){
+        if(!recievingUUIDdelete(p.UUID)){
+            cout << "[TcpRecv] WARN! recievingUUIDdelete FAILED..? (Non-critical)"<<endl;
+        }
+    }
+    cout << "[TcpRecv] Recieve Success..."<<endl;
+    return storeIndex;
 
     //Buffer Address Record
     if (tcp_netin[getNetinIndex(storeIndex-1)].programID!=tcp_netin[storeIndex].programID) {
         TcpinStartMem[tcp_netin[storeIndex].programID]=storeIndex;
-        TcpinEndMem[tcp_netin[getNetinIndex(storeIndex-1)].programID]=getNetinIndex(storeIndex-1);
-        tcp_netin[TcpinEndMem[tcp_netin[storeIndex].programID]].NEXTMEM=storeIndex;
+        TcpinEndMem[tcp_netin[storeIndex].programID]=storeIndex;
+        tcp_netin[getNetinIndex(TcpinEndMem[tcp_netin[storeIndex].programID])].NEXTMEM=storeIndex;
     }
 
     else {
+        if (recievingUUID[tcp_netin[storeIndex].UUID]!=-1) {
+            tcp_netin[TcpinEndMem[tcp_netin[storeIndex].programID]].NEXTMEM=storeIndex;
+        }
+        else {
+            for (int i=0; i<BUFFER_MAX_SIZE; i++) {
+                if (tcp_netin[i].UUID>tcp_netin[storeIndex].UUID)
+                    tcp_netin[TcpinEndMem[tcp_netin[storeIndex].UUID]].NEXTMEM=i;
+            }
+        }
+
+        //Replace End Memory of UUID
         TcpinEndMem[tcp_netin[storeIndex].programID]=storeIndex;
-        tcp_netin[getNetinIndex(storeIndex-1)].NEXTMEM=storeIndex;
     }
 
-    //Makes Buffer Circular Structure
-    storeIndex=getNetinIndex(storeIndex++);
+
 
 
     return 0;
@@ -756,6 +936,15 @@ int main(void){
                 cout << "[SendBLE] Enter progID" << endl;
                 scanf("%d", &progNo);
                 cout << read(progNo) << endl;
+            }
+            else if(tmp == "forcedel"){
+                if(!deleteMessageIfMalformed){
+                    cout << "[SYSTEM] forcing Malformed Message Delete to ON..." << endl;
+                    deleteMessageIfMalformed = true;
+                } else{
+                    cout << "[SYSTEM] forcing Malformed Message Delete to OFF..." << endl;
+                    deleteMessageIfMalformed = false;
+                }
             }
             else{
                 cout << "Unknown Command..." << endl;
