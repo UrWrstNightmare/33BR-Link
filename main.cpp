@@ -74,7 +74,7 @@ short int BleinStartMem[PROGRAM_MAX_NUMBER]; //
 short int TcpinEndMem[PROGRAM_MAX_NUMBER]; //
 short int BleinEndMem[PROGRAM_MAX_NUMBER]; //
 
-short int recievingUUID[UUID_MAX_NUMBER];
+short int receivingUUID[UUID_MAX_NUMBER];
 
 //[x][y][0] means length of the array[x][y]
 
@@ -89,7 +89,7 @@ void run_only_once(){
         BleinStartMem[i] = -1;
     }
     for(short int i = 0; i < UUID_MAX_NUMBER; i++){
-        recievingUUID[i] = -1;
+        receivingUUID[i] = -1;
     }
 }
 //</Variable-INIT-------------------------------------------------->
@@ -171,11 +171,8 @@ string read(short int progID){
                 int i;
                 cout << "[READ] Forcing Reader to DROP all NON-BEGINNING packets with UUID = " << UUID << endl;
                 for(i = 0; i < UUID_MAX_NUMBER; i++){
-                    if(recievingUUID[i] == UUID)
-                        recievingUUID[i] = -1; //This will make the receiver drop any further incoming packets with the same UUID
-                }
-                if(i == UUID_MAX_NUMBER){
-                    return "[ER][READ](ERRCODE -6974) Why wasn't the memory freed already? UNKNOWN ERROR"; //such event should never occur
+                    if(receivingUUID[i] == UUID)
+                        receivingUUID[i] = -1; //This will make the receiver drop any further incoming packets with the same UUID
                 }
                 //now, we should traverse the linked list and DELETE all of the nodes
                 cout << "[READ] Deleting all packets in buffer with UUID = " << UUID << endl;
@@ -234,14 +231,11 @@ string read(short int progID){
         if(tcp_netin[traverse_memLoc].STATE != -4){ //if packet END not properly defined (malformed message)
             //should return a MALFORMED PACKET error...
             if(deleteMessageIfMalformed){ //will agressively free malformed messages
-                int i;
+                short int i;
                 cout << "[READ] Forcing Reader to DROP all NON-BEGINNING packets with UUID = " << UUID << endl;
                 for(i = 0; i < UUID_MAX_NUMBER; i++){
-                    if(recievingUUID[i] == UUID)
-                        recievingUUID[i] = -1; //This will make the receiver drop any further incoming packets with the same UUID
-                }
-                if(i == UUID_MAX_NUMBER){
-                    return "[ER][READ](ERRCODE -6974) Why wasn't the memory freed already? UNKNOWN ERROR"; //such event should never occur
+                    if(receivingUUID[i] == UUID)
+                        receivingUUID[i] = -1; //This will make the receiver drop any further incoming packets with the same UUID
                 }
                 //now, we should traverse the linked list and DELETE all of the nodes
                 cout << "[READ] Deleting all packets in buffer with UUID = " << UUID << endl;
@@ -307,10 +301,10 @@ short int storeIndexIncrement(){
     return storeIndex;
 }
 
-bool recievingUUIDAdd(short int UUID){
+bool receivingUUIDAdd(short int UUID){
     for(short int i = 0; i < UUID_MAX_NUMBER; i++){
-        if(recievingUUID[i] == -1){
-            recievingUUID[i] = UUID;
+        if(receivingUUID[i] == -1){
+            receivingUUID[i] = UUID;
             return true;
             break;
         }
@@ -318,18 +312,18 @@ bool recievingUUIDAdd(short int UUID){
     return false;
 }
 
-bool recievingUUIDexist(short int UUID){
+bool receivingUUIDexist(short int UUID){
     for(short int i = 0; i < UUID_MAX_NUMBER; i++){
-        if(recievingUUID[i] == UUID)
+        if(receivingUUID[i] == UUID)
             return true;
     }
     return false;
 }
 
-bool recievingUUIDdelete(short int UUID){
+bool receivingUUIDdelete(short int UUID){
     for(short int i = 0; i < UUID_MAX_NUMBER; i++){
-        if(recievingUUID[i] == UUID){
-            recievingUUID[i] = -1;
+        if(receivingUUID[i] == UUID){
+            receivingUUID[i] = -1;
             return true;
         }
     }
@@ -392,9 +386,9 @@ short int tcp_receiver(packet p) {
     //------------------------------------------------
 
     if(p.STATE == 0 || p.STATE == -4){ //add UUID to active...
-        if(!recievingUUIDexist(p.UUID)){
+        if(!receivingUUIDexist(p.UUID)){
             cout << "[TcpRecv] wow, a new msg!" << endl;
-            if(!recievingUUIDAdd(p.UUID)){
+            if(!receivingUUIDAdd(p.UUID)){
                 cout << "[TcpRecv] Error: TOO MANY ACTIVE UUIDS! (-2)" << endl;
                 //reverting changes after buffer save -------------------------------------
                 //will now free the memory of the received packet in buffer;
@@ -428,7 +422,7 @@ short int tcp_receiver(packet p) {
             TcpinEndMem[p.programID] = storeIndex;
         }
     }
-    //If new type of message add UUID to recievingUUID
+    //If new type of message add UUID to receivingUUID
     else if(tcp_netin[getNetinIndex(storeIndex-1)].UUID != p.UUID && p.STATE == 0){
         //now, we should add this NEW UUID to existing program linked list
         if(TcpinStartMem[p.programID] != -1){ //if this is not empty (message available for progID)
@@ -441,7 +435,7 @@ short int tcp_receiver(packet p) {
             tcp_netin[storeIndex].NEXTMEM = -1; //unlink
         }
     }
-    else if (!recievingUUIDexist(p.UUID)){
+    else if (!receivingUUIDexist(p.UUID)){
         //reverting changes after buffer save -------------------------------------
         //will now free the memory of the received packet in buffer;
         tcp_netin[getNetinIndex(storeIndex)].STATE = -5; //FLAG EMPTY
@@ -502,8 +496,8 @@ short int tcp_receiver(packet p) {
     //Makes Buffer Circular Structure
     storeIndex=getNetinIndex(storeIndex++);
     if(p.STATE == -4){
-        if(!recievingUUIDdelete(p.UUID)){
-            cout << "[TcpRecv] WARN! recievingUUIDdelete FAILED..? (Non-critical)"<<endl;
+        if(!receivingUUIDdelete(p.UUID)){
+            cout << "[TcpRecv] WARN! receivingUUIDdelete FAILED..? (Non-critical)"<<endl;
         }
     }
     cout << "[TcpRecv] Receive Success..."<<endl;
@@ -517,7 +511,7 @@ short int tcp_receiver(packet p) {
     }
 
     else {
-        if (recievingUUID[tcp_netin[storeIndex].UUID]!=-1) {
+        if (receivingUUID[tcp_netin[storeIndex].UUID]!=-1) {
             tcp_netin[TcpinEndMem[tcp_netin[storeIndex].programID]].NEXTMEM=storeIndex;
         }
         else {
