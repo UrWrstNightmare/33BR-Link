@@ -1,4 +1,5 @@
-#include <bits/stdc++.h>
+#include <string>
+#include <iostream>
 
 //DESIGNATED WORDS
 
@@ -11,17 +12,17 @@
 #define PRIORITY_BUFFER_MAX_SIZE 20
 #define NETIN_BUFFER_MAX_SIZE 20
 
-#define PACKET_STR_SIZE 10
+#define PACKET_STR_SIZE 20
 
 #define PROGRAM_MAX_NUMBER 10
 #define UUID_MAX_NUMBER 20
 
-#define MAX_PACKETS_SEND 20
+#define MAX_PACKETS_SEND 1
 //----------------------
 
 //BEHAVIOR SETTINGS
 bool deleteMessageIfMalformed = false;
-
+bool ignoreSingleSizedPackets = true;
 
 //---------------------
 using namespace std;
@@ -43,7 +44,7 @@ struct sysdata{
 };
 
 struct packet{
-    short int UUID; //Defines the UUID of the packet, defined by the system
+    short int UUID = -1; //Defines the UUID of the packet, defined by the system
     short int STATE = -5; //Defines the STATE of the packet, if positive means the # of the packet in sequence
     /*
      * positive: 0 1 2 3 4 5... --> consecutive packet order
@@ -385,11 +386,11 @@ short int tcp_receiver(packet p) {
     printf("\n");
     //------------------------------------------------
 
-    if(p.STATE == 0 || p.STATE == -4){ //add UUID to active...
+    if(p.STATE == 0 || (p.STATE == -4 && !ignoreSingleSizedPackets) ){ //add UUID to active...
         if(!receivingUUIDexist(p.UUID)){
             cout << "[TcpRecv] wow, a new msg!" << endl;
             if(!receivingUUIDAdd(p.UUID)){
-                cout << "[TcpRecv] Error: TOO MANY ACTIVE UUIDS! (-2)" << endl;
+                cout << "[TcpRecv] Error: TOO MANY ACTIVE UUIDS! (f-2)" << endl;
                 //reverting changes after buffer save -------------------------------------
                 //will now free the memory of the received packet in buffer;
                 tcp_netin[getNetinIndex(storeIndex)].STATE = -5; //FLAG EMPTY
@@ -424,6 +425,7 @@ short int tcp_receiver(packet p) {
     }
     //If new type of message add UUID to receivingUUID
     else if(tcp_netin[getNetinIndex(storeIndex-1)].UUID != p.UUID && p.STATE == 0){
+
         //now, we should add this NEW UUID to existing program linked list
         if(TcpinStartMem[p.programID] != -1){ //if this is not empty (message available for progID)
             tcp_netin[TcpinEndMem[p.programID]].NEXTMEM = storeIndex;
@@ -466,6 +468,8 @@ short int tcp_receiver(packet p) {
             if(curpos == -1){
                 //this is a NEW message! wow
                 tcp_netin[TcpinEndMem[p.programID]].NEXTMEM = storeIndex;
+                if(TcpinStartMem[p.programID]==-1)
+                    TcpinStartMem[p.programID] = storeIndex;
                 TcpinEndMem[p.programID] = storeIndex;
                 cout << "[TcpRecv] LINK successful!" << endl;
                 break;
@@ -668,17 +672,21 @@ short int send(string msg, short int progNo, short int priority){
     short int lastMEMloc = -1;
     short int pos;
 
-    for(short int i = 0; i < count; i++){
+    for(short int i = 0; i < count || (i < 2 && ignoreSingleSizedPackets); i++){
 
         short int msgStartPos;
 
         if(i == count-1){
-            temp.STATE = -4; //END
-            temp.message = msg.substr(PACKET_STR_SIZE*i, (len-1)%10+1);
+            ignoreSingleSizedPackets?(len<=PACKET_STR_SIZE?temp.STATE = 0:temp.STATE = -4) : temp.STATE = -4; //END
+            temp.message = msg.substr(PACKET_STR_SIZE*i, (len-1)%PACKET_STR_SIZE+1);
         }
-        else{
+        else if(i < count){
             temp.STATE = i;
             temp.message = msg.substr(PACKET_STR_SIZE*i, PACKET_STR_SIZE);
+        }
+        if(len <= PACKET_STR_SIZE && i == 1){
+            temp.STATE = -4;
+            temp.message = "";
         }
 
         switch(priority){
@@ -783,8 +791,9 @@ void getTCPbufferState(){ //for DEBUG
         if(tcp_netout[i].STATE != -5){
             cnt++;
             cout << tcp_netout[i].UUID << " ";
-        } else
+        } else{
             cout << "0 ";
+        }
     }
     cout << "\n";
     cout << "[TCP BUFFER] " << cnt << "/" << BUFFER_MAX_SIZE << " (" << (double)cnt/BUFFER_MAX_SIZE*100 << "% Full)" << endl;
@@ -796,8 +805,9 @@ void getPrioritybufferState(){ //for DEBUG
         if(tcp_netout_priority[i].STATE != -5){
             cnt++;
             cout << tcp_netout_priority[i].UUID << " ";
-        } else
+        } else{
             cout << "0 ";
+        }
     }
     cout << "\n";
     cout << "[PRIORITY BUFFER] " << cnt << "/" << PRIORITY_BUFFER_MAX_SIZE << " (" << (double)cnt/PRIORITY_BUFFER_MAX_SIZE*100 << "% Full)" << endl;
@@ -810,8 +820,9 @@ void getBLEbufferState(){ //for DEBUG
         if(ble_netout[i].STATE != -5){
             cnt++;
             cout << ble_netout[i].UUID << " ";
-        } else
+        } else{
             cout << "0 ";
+        }
     }
     cout << "[BLE BUFFER] Current Buffer STATE:" << endl;
     cnt = 0;
@@ -819,8 +830,9 @@ void getBLEbufferState(){ //for DEBUG
         if(ble_netout[i].STATE != -5){
             cnt++;
             cout << ble_netout[i].STATE << " ";
-        } else
+        } else{
             cout << "0 ";
+        }
     }
     cout << "\n";
     cout << "[BLE BUFFER] " << cnt << "/" << PRIORITY_BUFFER_MAX_SIZE << " (" << (double)cnt/PRIORITY_BUFFER_MAX_SIZE*100 << "% Full)" << endl;
@@ -938,6 +950,15 @@ int main(void){
                 } else{
                     cout << "[SYSTEM] forcing Malformed Message Delete to OFF..." << endl;
                     deleteMessageIfMalformed = false;
+                }
+            }
+            else if(tmp == "forcesingle"){
+                if(!ignoreSingleSizedPackets){
+                    cout << "[SYSTEM] force ignore single sized packets to ON..." << endl;
+                    ignoreSingleSizedPackets = true;
+                } else{
+                    cout << "[SYSTEM] force ignore single sized packets to OFF..." << endl;
+                    ignoreSingleSizedPackets = false;
                 }
             }
             else{
